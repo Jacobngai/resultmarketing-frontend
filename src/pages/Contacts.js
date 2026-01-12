@@ -16,70 +16,7 @@ import {
   Check,
   Loader2,
 } from 'lucide-react';
-
-// Sample contact data - replace with actual API data
-const sampleContacts = [
-  {
-    id: 1,
-    name: 'Ahmad bin Hassan',
-    company: 'XYZ Corporation Sdn Bhd',
-    phone: '+60123456789',
-    email: 'ahmad@xyzcorp.com',
-    location: 'Kuala Lumpur',
-    category: 'Real Estate',
-    isFavorite: true,
-    lastContact: '2024-01-15',
-    followUpDate: '2024-01-20',
-  },
-  {
-    id: 2,
-    name: 'Sarah Lee Wei Ling',
-    company: 'Tech Solutions Malaysia',
-    phone: '+60198765432',
-    email: 'sarah.lee@techsolutions.my',
-    location: 'Petaling Jaya',
-    category: 'Technology',
-    isFavorite: false,
-    lastContact: '2024-01-12',
-    followUpDate: null,
-  },
-  {
-    id: 3,
-    name: 'David Wong',
-    company: 'Global Finance Group',
-    phone: '+60167891234',
-    email: 'david.wong@gfg.com',
-    location: 'Penang',
-    category: 'Finance',
-    isFavorite: true,
-    lastContact: '2024-01-10',
-    followUpDate: '2024-01-18',
-  },
-  {
-    id: 4,
-    name: 'Nurul Aisyah',
-    company: 'Healthcare Plus',
-    phone: '+60145678901',
-    email: 'nurul@healthcareplus.com.my',
-    location: 'Johor Bahru',
-    category: 'Healthcare',
-    isFavorite: false,
-    lastContact: '2024-01-08',
-    followUpDate: null,
-  },
-  {
-    id: 5,
-    name: 'Raj Kumar',
-    company: 'Construction Pro',
-    phone: '+60134567890',
-    email: 'raj@constructionpro.com',
-    location: 'Shah Alam',
-    category: 'Construction',
-    isFavorite: false,
-    lastContact: '2024-01-05',
-    followUpDate: '2024-01-22',
-  },
-];
+import { db } from '../lib/supabase';
 
 const categories = [
   'All',
@@ -105,6 +42,69 @@ const Contacts = () => {
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(1);
   const observerRef = useRef();
+  const [isSaving, setIsSaving] = useState(false);
+  const [newContact, setNewContact] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    company: '',
+    category: '',
+    location: '',
+    notes: '',
+  });
+
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setNewContact(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Handle form submission
+  const handleAddContact = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
+
+    try {
+      const contactData = {
+        name: newContact.name,
+        phone: newContact.phone ? `+60${newContact.phone.replace(/\D/g, '')}` : null,
+        email: newContact.email || null,
+        company: newContact.company || null,
+        category: newContact.category || 'Other',
+        location: newContact.location || null,
+        notes: newContact.notes || null,
+      };
+
+      const { data, error } = await db.contacts.create(contactData);
+
+      if (error) {
+        console.error('Error creating contact:', error);
+        alert('Failed to save contact. Please try again.');
+      } else {
+        // Add new contact to local state
+        const mappedContact = {
+          id: data.id,
+          name: data.name,
+          company: data.company || '',
+          phone: data.phone || '',
+          email: data.email || '',
+          location: data.location || '',
+          category: data.category || 'Other',
+          isFavorite: false,
+          lastContact: null,
+          followUpDate: null,
+        };
+        setContacts(prev => [mappedContact, ...prev]);
+        setShowAddModal(false);
+        setNewContact({ name: '', phone: '', email: '', company: '', category: '', location: '', notes: '' });
+      }
+    } catch (error) {
+      console.error('Error creating contact:', error);
+      alert('Failed to save contact. Please try again.');
+    }
+
+    setIsSaving(false);
+  };
 
   // Check URL params for add action
   useEffect(() => {
@@ -115,26 +115,44 @@ const Contacts = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  // Load initial contacts
+  // Load initial contacts from Supabase
   useEffect(() => {
     const loadContacts = async () => {
       setIsLoading(true);
-      // Simulate API call
-      await new Promise((resolve) => setTimeout(resolve, 600));
 
-      // Generate more contacts for demo
-      const moreContacts = [];
-      for (let i = 0; i < 3; i++) {
-        moreContacts.push(
-          ...sampleContacts.map((c, idx) => ({
-            ...c,
-            id: c.id + (i + 1) * 10 + idx,
-            name: `${c.name} ${i + 1}`,
-          }))
-        );
+      try {
+        const { data, error, count } = await db.contacts.getAll({
+          limit: 50,
+          offset: 0,
+          search: '',
+          category: null,
+        });
+
+        if (error) {
+          console.error('Error loading contacts:', error);
+          setContacts([]);
+        } else {
+          // Map database fields to component format
+          const mappedContacts = (data || []).map(contact => ({
+            id: contact.id,
+            name: contact.name || '',
+            company: contact.company || '',
+            phone: contact.phone || '',
+            email: contact.email || '',
+            location: contact.location || contact.city || '',
+            category: contact.category || 'Other',
+            isFavorite: contact.is_favorite || false,
+            lastContact: contact.last_contact_date,
+            followUpDate: contact.follow_up_date,
+          }));
+          setContacts(mappedContacts);
+          setHasMore(count > mappedContacts.length);
+        }
+      } catch (error) {
+        console.error('Error loading contacts:', error);
+        setContacts([]);
       }
 
-      setContacts([...sampleContacts, ...moreContacts]);
       setIsLoading(false);
     };
 
@@ -503,13 +521,17 @@ const Contacts = () => {
             </div>
 
             {/* Form */}
-            <form className="p-4 space-y-4">
+            <form className="p-4 space-y-4" onSubmit={handleAddContact}>
               <div>
                 <label className="label">Full Name *</label>
                 <input
                   type="text"
+                  name="name"
+                  value={newContact.name}
+                  onChange={handleInputChange}
                   className="input"
                   placeholder="e.g., Ahmad bin Hassan"
+                  required
                 />
               </div>
 
@@ -521,8 +543,12 @@ const Contacts = () => {
                   </div>
                   <input
                     type="tel"
+                    name="phone"
+                    value={newContact.phone}
+                    onChange={handleInputChange}
                     className="input rounded-l-none flex-1"
                     placeholder="12-345 6789"
+                    required
                   />
                 </div>
               </div>
@@ -531,6 +557,9 @@ const Contacts = () => {
                 <label className="label">Email</label>
                 <input
                   type="email"
+                  name="email"
+                  value={newContact.email}
+                  onChange={handleInputChange}
                   className="input"
                   placeholder="email@example.com"
                 />
@@ -540,6 +569,9 @@ const Contacts = () => {
                 <label className="label">Company</label>
                 <input
                   type="text"
+                  name="company"
+                  value={newContact.company}
+                  onChange={handleInputChange}
                   className="input"
                   placeholder="Company name"
                 />
@@ -547,7 +579,12 @@ const Contacts = () => {
 
               <div>
                 <label className="label">Category</label>
-                <select className="input">
+                <select
+                  name="category"
+                  value={newContact.category}
+                  onChange={handleInputChange}
+                  className="input"
+                >
                   <option value="">Select category</option>
                   {categories.filter(c => c !== 'All').map((cat) => (
                     <option key={cat} value={cat}>
@@ -561,6 +598,9 @@ const Contacts = () => {
                 <label className="label">Location</label>
                 <input
                   type="text"
+                  name="location"
+                  value={newContact.location}
+                  onChange={handleInputChange}
                   className="input"
                   placeholder="City"
                 />
@@ -569,6 +609,9 @@ const Contacts = () => {
               <div>
                 <label className="label">Notes</label>
                 <textarea
+                  name="notes"
+                  value={newContact.notes}
+                  onChange={handleInputChange}
                   className="input min-h-[100px]"
                   placeholder="Add any notes about this contact..."
                 ></textarea>
@@ -582,8 +625,12 @@ const Contacts = () => {
                 >
                   Cancel
                 </button>
-                <button type="submit" className="flex-1 btn-primary py-3">
-                  Save Contact
+                <button
+                  type="submit"
+                  disabled={isSaving}
+                  className="flex-1 btn-primary py-3"
+                >
+                  {isSaving ? <Loader2 className="animate-spin" size={20} /> : 'Save Contact'}
                 </button>
               </div>
             </form>

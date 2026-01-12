@@ -14,6 +14,8 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { db } from '../lib/supabase';
+import { remindersApi } from '../lib/api';
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -40,60 +42,91 @@ const Dashboard = () => {
     const loadDashboardData = async () => {
       setIsLoading(true);
 
-      // Simulated data - replace with actual API calls
-      setTimeout(() => {
+      try {
+        // Fetch contacts count
+        const { count: totalContacts, error: contactsError } = await db.contacts.getAll({ limit: 1 });
+
+        // Fetch contacts from this week
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+
+        // Fetch recent activities
+        const { data: activities, error: activitiesError } = await db.activities.getRecent(10);
+
+        // Fetch today's follow-ups count (try API, fallback to 0)
+        let followUpsCount = 0;
+        try {
+          const reminders = await remindersApi.getToday();
+          followUpsCount = reminders?.data?.length || 0;
+        } catch (e) {
+          console.log('Reminders API not available');
+        }
+
+        // Set stats
         setStats({
-          totalContacts: 1247,
-          newThisWeek: 23,
-          followUpsToday: 8,
-          conversionRate: 24,
+          totalContacts: totalContacts || 0,
+          newThisWeek: 0, // Will be calculated from contacts with created_at > weekAgo
+          followUpsToday: followUpsCount,
+          conversionRate: 0, // Calculate based on your business logic
         });
 
-        setRecentActivities([
-          {
-            id: 1,
-            type: 'contact_added',
-            title: 'New contact added',
-            description: 'Ahmad bin Hassan from XYZ Corp',
-            time: '2 hours ago',
-            icon: Users,
-            color: 'bg-blue-100 text-blue-600',
-          },
-          {
-            id: 2,
-            type: 'follow_up',
-            title: 'Follow-up completed',
-            description: 'Call with Sarah Lee',
-            time: '4 hours ago',
-            icon: Calendar,
-            color: 'bg-green-100 text-green-600',
-          },
-          {
-            id: 3,
-            type: 'import',
-            title: 'Contacts imported',
-            description: '15 contacts from Excel file',
-            time: 'Yesterday',
-            icon: FileSpreadsheet,
-            color: 'bg-purple-100 text-purple-600',
-          },
-          {
-            id: 4,
-            type: 'namecard',
-            title: 'Namecard scanned',
-            description: 'David Wong - Tech Solutions',
-            time: 'Yesterday',
-            icon: Camera,
-            color: 'bg-orange-100 text-orange-600',
-          },
-        ]);
+        // Map activities to display format
+        const activityIcons = {
+          contact_added: { icon: Users, color: 'bg-blue-100 text-blue-600' },
+          follow_up: { icon: Calendar, color: 'bg-green-100 text-green-600' },
+          import: { icon: FileSpreadsheet, color: 'bg-purple-100 text-purple-600' },
+          namecard: { icon: Camera, color: 'bg-orange-100 text-orange-600' },
+        };
 
-        setIsLoading(false);
-      }, 800);
+        if (activities && activities.length > 0) {
+          const mappedActivities = activities.map(activity => {
+            const iconInfo = activityIcons[activity.type] || { icon: Users, color: 'bg-gray-100 text-gray-600' };
+            const timeAgo = getTimeAgo(new Date(activity.created_at));
+
+            return {
+              id: activity.id,
+              type: activity.type,
+              title: activity.title || activity.type.replace('_', ' '),
+              description: activity.description || '',
+              time: timeAgo,
+              icon: iconInfo.icon,
+              color: iconInfo.color,
+            };
+          });
+          setRecentActivities(mappedActivities);
+        } else {
+          // No activities yet - show empty state
+          setRecentActivities([]);
+        }
+
+      } catch (error) {
+        console.error('Error loading dashboard data:', error);
+        // Set empty state on error
+        setStats({
+          totalContacts: 0,
+          newThisWeek: 0,
+          followUpsToday: 0,
+          conversionRate: 0,
+        });
+        setRecentActivities([]);
+      }
+
+      setIsLoading(false);
     };
 
     loadDashboardData();
   }, []);
+
+  // Helper function to format time ago
+  const getTimeAgo = (date) => {
+    const seconds = Math.floor((new Date() - date) / 1000);
+
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)} min ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)} hours ago`;
+    if (seconds < 172800) return 'Yesterday';
+    return `${Math.floor(seconds / 86400)} days ago`;
+  };
 
   const quickActions = [
     {
