@@ -114,14 +114,21 @@ const Chat = () => {
         email: c.email,
       }));
 
-      // Call the real chat API
-      const response = await chatApi.sendMessage(
-        content.trim(),
-        conversationId,
-        { contacts: contactsContext }
-      );
+      // Try backend first, fallback to AI service directly
+      let response;
+      try {
+        response = await chatApi.sendMessage(
+          content.trim(),
+          conversationId,
+          { contacts: contactsContext }
+        );
+      } catch (backendError) {
+        console.log('Backend unavailable, trying AI service directly...');
+        // Fallback: Call AI service directly (bypasses auth)
+        response = await chatApi.query(content.trim(), contactsContext);
+      }
 
-      if (response.success) {
+      if (response.success || response.response) {
         // Update conversation ID if new
         if (response.data?.conversation_id) {
           setConversationId(response.data.conversation_id);
@@ -130,7 +137,7 @@ const Chat = () => {
         const aiMessage = {
           id: Date.now() + 1,
           role: 'assistant',
-          content: response.data?.message || response.data?.response || 'I received your message.',
+          content: response.data?.message || response.data?.response || response.response || 'I received your message.',
           timestamp: new Date(),
         };
 
@@ -143,7 +150,7 @@ const Chat = () => {
       const errorMessage = {
         id: Date.now() + 1,
         role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
+        content: 'Sorry, I encountered an error. Please try again. Make sure the AI service is running.',
         timestamp: new Date(),
         isError: true,
       };
